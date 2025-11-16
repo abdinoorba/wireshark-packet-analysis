@@ -1,67 +1,157 @@
-# Lab 01 — Network Scan Forensics Investigation
-> *Hands-on network forensics exercise demonstrating SYN scan detection using Wireshark and tshark.*
 
-**Tools:** Wireshark, tshark  
-**PCAP source:** [Wireshark SampleCaptures](https://wiki.wireshark.org/samplecaptures) — `NMap Captures.zip`  
-**File used:** [`sample_pcaps/nmap_standard_scan.pcap`](sample_pcaps/nmap_standard_scan.pcap)
+---
+
+# **Network Reconnaissance Detection & Analysis Lab**
+
+### *Packet-Level Forensics of a TCP SYN Scan*
+
+
+*Understanding adversary scanning behavior through hands-on packet-level forensics*
+
+## **Why This Exercise Matters**
+
+Network reconnaissance is the **first stage of the cyberattack kill chain**.
+Before attackers exploit vulnerabilities or deploy malware, they first map the environment by probing ports, services, and systems.
+
+This exercise develops the ability to:
+
+* Detect **Indicators of Reconnaissance (IoRs)** in packet captures
+* Identify attacker vs. victim hosts through traffic patterns
+* Validate scan types (SYN/half-open scans vs. full-connect scans)
+* Analyze low-level TCP behavior used by common tools like **Nmap**
+
+
+Recognizing reconnaissance traffic early allows defenders to **detect intrusions before compromise occurs**, making this a core Blue Team capability.
+
+---
+
+
+**Tools:** Wireshark, tshark
+
+**PCAP Source:** [Wireshark SampleCaptures](https://wiki.wireshark.org/samplecaptures), `NMap Captures.zip`
+
+**File Analyzed:** [`sample_pcaps/nmap_standard_scan.pcap`](sample_pcaps/nmap_standard_scan.pcap)
 
 ---
 
 ## Objective
 
-Detect and characterize network reconnaissance using packet capture analysis.  
-Isolate attacker ↔ victim traffic and validate scan type via protocol-level analysis.
+Determine whether the captured network traffic represents reconnaissance activity, identify the attacker and victim hosts, and validate the scan type using packet-level and command-line analysis.
 
 ---
 
 ## Methods
 
-1. Opened [`nmap_standard_scan.pcap`](sample_pcaps/nmap_standard_scan.pcap) in Wireshark.
+### 1. Opened Packet Capture
 
-2. Applied SYN-only filter:  `tcp.flags.syn == 1 && tcp.flags.ack == 0`  
+Loaded the packet capture in Wireshark:
 
-    *Screenshot:* [`screenshots/syn-filter.png`](screenshots/syn-filter.png)
+**File:**
+[`sample_pcaps/nmap_standard_scan.pcap`](sample_pcaps/nmap_standard_scan.pcap)
 
-4. Identified attacker IP (`192.168.100.103`) and victim IP (`192.168.100.102`).
+---
 
-5. Isolated conversation:   `ip.addr == 192.168.100.103 && ip.addr == 192.168.100.102`  
+### 2. Applied SYN-Only Filter
 
-   *Screenshot:* [`screenshots/attacker-victim-filter.png`](screenshots/attacker-victim-filter.png)
+Filtered for SYN packets without the ACK flag to detect half-open scan behavior:
 
-6. Verified scan activity using tshark commands:  
-   ```bash
-   tshark -r sample_pcaps/nmap_standard_scan.pcap \
-     -Y "tcp.flags.syn == 1 && tcp.flags.ack == 0" \
-     -T fields -e ip.src | sort | uniq -c | sort -rn
-   ```
-   The output confirmed `192.168.100.103` as the **sole source of SYN packets (2000 packets total)**.
+```
+tcp.flags.syn == 1 && tcp.flags.ack == 0
+```
 
-   *Screenshot:* [`screenshots/tshark-syn-counts.png`](screenshots/tshark-syn-counts.png)
+**Screenshot:**
+![SYN filter](screenshots/syn-filter.png)
 
-7. Counted destination ports to identify scan breadth:
+---
 
-   ```bash
-   tshark -r sample_pcaps/nmap_standard_scan.pcap \
-     -Y "tcp.flags.syn == 1 && tcp.flags.ack == 0" \
-     -T fields -e tcp.dstport | sort | uniq -c | sort -n
-   ```
+### 3. Identified Attacker and Victim Hosts
 
-   The results showed sequential SYNs to many TCP ports (e.g., 23, 25, 80, 135, 143, 1723, 8888, etc.).
+* **Attacker:** 192.168.100.103
+* **Victim:** 192.168.100.102
 
-   *Screenshot:* [`screenshots/tshark-port-counts.png`](screenshots/tshark-port-counts.png)
+---
 
-9. Listed SYN packets with frame number, source, destination, and MSS values to validate packet characteristics.
+### 4. Isolated Conversation Between Hosts
 
-   *Screenshot:* [`screenshots/tshark-syn-list.png`](screenshots/tshark-syn-list.png)
+Applied a two-host filter:
 
-11. Validated fingerprint by inspecting TCP flags and TCP options (`MSS=1460`, `Window=1024`).
-   Observed sequential SYN packets to multiple destination ports, confirming an automated scanning pattern.
+```
+ip.addr == 192.168.100.103 && ip.addr == 192.168.100.102
+```
 
-    *Screenshot:* [`screenshots/syn-packet-details.png`](screenshots/syn-packet-details.png)
+**Screenshot:**
+![Attacker–Victim Filter](screenshots/attacker-victim-filter.png)
 
-12. Followed a TCP stream (`tcp.stream eq 5`) — the Follow Stream window was empty, confirming no completed handshake or        payload exchange.
+---
 
-    *Screenshot:* [`screenshots/follow-stream.png`](screenshots/follow-stream.png)
+### 5. Verified Source of SYN Packets (tshark)
+
+Ran tshark to count SYN packets per source:
+
+```bash
+tshark -r sample_pcaps/nmap_standard_scan.pcap \
+  -Y "tcp.flags.syn == 1 && tcp.flags.ack == 0" \
+  -T fields -e ip.src | sort | uniq -c | sort -rn
+```
+
+Output showed:
+
+* **2000 SYN packets**
+* **All originating from `192.168.100.103`**
+
+**Screenshot:**
+![tshark SYN counts](screenshots/tshark-syn-counts.png)
+
+---
+
+### 6. Counted Destination Ports
+
+Enumerated destination ports targeted by SYN packets:
+
+```bash
+tshark -r sample_pcaps/nmap_standard_scan.pcap \
+  -Y "tcp.flags.syn == 1 && tcp.flags.ack == 0" \
+  -T fields -e tcp.dstport | sort | uniq -c | sort -n
+```
+
+The results showed rapid probing of many ports (23, 25, 80, 135, 143, 1723, 8888, etc.).
+
+**Screenshot:**
+![Port counts](screenshots/tshark-port-counts.png)
+
+---
+
+### 7. Listed Detailed SYN Packet Characteristics
+
+Displayed frame number, endpoints, MSS, and other TCP options for fingerprinting.
+
+**Screenshot:**
+![SYN list](screenshots/tshark-syn-list.png)
+
+---
+
+### 8. Validated Scan Fingerprint
+
+Confirmed Nmap-like behavior using:
+
+* Repeated SYNs
+* No full handshakes
+* Consistent TCP options (`MSS=1460`, `Window=1024`)
+* Sequential port enumeration
+
+**Screenshot:**
+![Packet details](screenshots/syn-packet-details.png)
+
+---
+
+### 9. Followed TCP Streams
+
+Followed a selected TCP stream (`tcp.stream eq 5`):
+
+*Stream was empty → no connection established, no payload transfers.*
+
+**Screenshot:**
+![Follow stream](screenshots/follow-stream.png)
 
 ---
 
@@ -69,51 +159,54 @@ Isolate attacker ↔ victim traffic and validate scan type via protocol-level an
 
 * **Attacker:** `192.168.100.103`
 * **Victim:** `192.168.100.102`
-* **Behavior:** Rapid sequence of TCP SYN packets to multiple ports (23, 25, 80, 135, 143, 1723, 8888, etc.).
-  Most ports show no SYN/ACK responses, indicating closed or filtered ports.
-* **Analysis:** Pattern consistent with **Nmap TCP SYN (half-open)** or **connect scan**.
-  No evidence of full TCP sessions or payload delivery was observed.
-* **Conclusion:** The target host was under **reconnaissance**, not compromise.
-  No post-scan exploitation activity detected within the capture window.
+* **Behavior:** High-volume TCP SYN packets to many ports with no successful handshakes.
+* **Scan Type:** **Nmap TCP SYN (half-open) scan**
+* **Intent:** Reconnaissance, not exploitation.
+* **No payload data** or follow-on activity observed.
 
 ---
 
 ## Evidence & Reproducibility
 
-* [`scripts/extract_syns.sh`](scripts/extract_syns.sh) — lists all SYN packets and counts per source.
+### Scripts
 
-   **Run:** `./scripts/extract_syns.sh sample_pcaps/nmap_standard_scan.pcap`
+* [`scripts/extract_syns.sh`](scripts/extract_syns.sh)
+  *Lists all SYN packets and counts per source.*
 
-* [`scripts/export_attacker_pcap.sh`](scripts/export_attacker_pcap.sh) — exports attacker-only traffic.
+  **Run:**
 
-  **Run:** `./scripts/export_attacker_pcap.sh sample_pcaps/nmap_standard_scan.pcap 192.168.100.103 attacker_streams.pcap`
+  ```
+  ./scripts/extract_syns.sh sample_pcaps/nmap_standard_scan.pcap
+  ```
 
-* Screenshots:
+* [`scripts/export_attacker_pcap.sh`](scripts/export_attacker_pcap.sh)
+  *Exports only attacker traffic to a new PCAP.*
 
-  * [`screenshots/syn-filter.png`](screenshots/syn-filter.png)
-  * [`screenshots/attacker-victim-filter.png`](screenshots/attacker-victim-filter.png)
-  * [`screenshots/syn-packet-details.png`](screenshots/syn-packet-details.png)
-  * [`screenshots/tshark-syn-counts.png`](screenshots/tshark-syn-counts.png)
-  * [`screenshots/tshark-port-counts.png`](screenshots/tshark-port-counts.png)
-  * [`screenshots/tshark-syn-list.png`](screenshots/tshark-syn-list.png)
-  * [`screenshots/follow-stream.png`](screenshots/follow-stream.png)
+  **Run:**
+
+  ```
+  ./scripts/export_attacker_pcap.sh sample_pcaps/nmap_standard_scan.pcap 192.168.100.103 attacker_streams.pcap
+  ```
 
 ---
 
 ## Conclusion & Recommendations
 
-The capture demonstrates **network reconnaissance** consistent with automated scanning tools such as Nmap.
-While no payload transfer or post-exploitation occurred, reconnaissance traffic indicates **potential targeting**.
+The capture definitively shows **network reconnaissance** using a TCP SYN (half-open) scan, likely performed with Nmap.
+No exploitation or lateral movement was detected.
 
-**Recommended actions:**
+### Recommended:
 
-* Correlate timestamps with IDS/firewall logs for the same source IP (`192.168.100.103`).
-* Review endpoint telemetry for connection attempts from that address.
-* If repeated scans occur, add the IP to monitoring or block lists.
-* Continue observing for escalation or exploitation attempts.
+* Correlate with IDS/firewall logs for `192.168.100.103`
+* Review endpoint telemetry for scanning behavior
+* Add automated monitoring or blocklisting if repeated
+* Continue observing for potential escalation
 
 ---
 
 **Author:** Abdinoor Ahmed
 
-*Wireshark Packet Analysis — Cybersecurity Portfolio Lab*
+*Wireshark Packet Analysis, Cybersecurity Portfolio Lab*
+
+---
+
